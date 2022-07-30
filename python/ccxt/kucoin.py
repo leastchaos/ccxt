@@ -408,7 +408,6 @@ class kucoin(Exchange):
                 'version': 'v1',
                 'symbolSeparator': '-',
                 'fetchMyTradesMethod': 'private_get_fills',
-                'fetchBalance': 'trade',
                 'fetchMarkets': {
                     'fetchTickersFees': True,
                 },
@@ -793,6 +792,11 @@ class kucoin(Exchange):
             raise ExchangeError(self.id + ' isFuturesMethod() type must be one of ' + ', '.join(keys))
         params = self.omit(params, 'type')
         return(type == 'contract') or (type == 'future') or (type == 'futures')  # * (type == 'futures') deprecated, use(type == 'future')
+
+    def is_margin_method(self, methodName, params):
+        defaultType = self.safe_string_2(self.options, methodName, 'defaultType')
+        tradeType = self.safe_string(params, 'tradeType', defaultType)
+        return(tradeType == 'MARGIN_TRADE') or (tradeType == 'margin')
 
     def parse_ticker(self, ticker, market=None):
         #
@@ -1236,7 +1240,7 @@ class kucoin(Exchange):
         isTakeProfit = takeProfitPrice is not None
         if isStopLoss and isTakeProfit:
             raise ExchangeError(self.id + ' createOrder() stopLossPrice and takeProfitPrice cannot both be defined')
-        tradeType = self.safe_string(params, 'tradeType')
+        isMargin = self.is_margin_method('createOrder', params)
         params = self.omit(params, ['stopLossPrice', 'takeProfitPrice', 'stopPrice'])
         method = 'privatePostOrders'
         if isStopLoss or isTakeProfit:
@@ -1244,8 +1248,10 @@ class kucoin(Exchange):
             triggerPrice = stopLossPrice if isStopLoss else takeProfitPrice
             request['stopPrice'] = self.price_to_precision(symbol, triggerPrice)
             method = 'privatePostStopOrder'
-        elif tradeType == 'MARGIN_TRADE':
+        elif isMargin:
             method = 'privatePostMarginOrder'
+            marginMode = self.safe_string(self.options, 'defaultMarginMode', 'cross')
+            request['marginMode'] = self.safe_string(params, 'marginMode', marginMode)
         response = getattr(self, method)(self.extend(request, params))
         #
         #     {
@@ -1325,8 +1331,11 @@ class kucoin(Exchange):
             request['symbol'] = market['id']
         method = 'privateDeleteOrders'
         stop = self.safe_value(params, 'stop')
+        isMargin = self.is_margin_method('cancelAllOrders', params)
         if stop:
             method = 'privateDeleteStopOrderCancel'
+        elif isMargin:
+            request['tradeType'] = 'MARGIN_TRADE'
         return getattr(self, method)(self.extend(request, params))
 
     def fetch_orders_by_status(self, status, symbol=None, since=None, limit=None, params={}):
@@ -1367,10 +1376,13 @@ class kucoin(Exchange):
         if until:
             request['endAt'] = until
         stop = self.safe_value(params, 'stop')
+        isMargin = self.is_margin_method('fetchOrdersByStatus', params)
         params = self.omit(params, ['stop', 'till', 'until'])
         method = 'privateGetOrders'
         if stop:
             method = 'privateGetStopOrder'
+        elif isMargin:
+            request['tradeType'] = 'MARGIN_TRADE'
         response = getattr(self, method)(self.extend(request, params))
         #
         #     {

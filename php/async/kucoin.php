@@ -393,7 +393,6 @@ class kucoin extends Exchange {
                 'version' => 'v1',
                 'symbolSeparator' => '-',
                 'fetchMyTradesMethod' => 'private_get_fills',
-                'fetchBalance' => 'trade',
                 'fetchMarkets' => array(
                     'fetchTickersFees' => true,
                 ),
@@ -791,6 +790,12 @@ class kucoin extends Exchange {
         }
         $params = $this->omit($params, 'type');
         return ($type === 'contract') || ($type === 'future') || ($type === 'futures'); // * ($type === 'futures') deprecated, use ($type === 'future')
+    }
+
+    public function is_margin_method($methodName, $params) {
+        $defaultType = $this->safe_string_2($this->options, $methodName, 'defaultType');
+        $tradeType = $this->safe_string($params, 'tradeType', $defaultType);
+        return ($tradeType === 'MARGIN_TRADE') || ($tradeType === 'margin');
     }
 
     public function parse_ticker($ticker, $market = null) {
@@ -1259,7 +1264,7 @@ class kucoin extends Exchange {
         if ($isStopLoss && $isTakeProfit) {
             throw new ExchangeError($this->id . ' createOrder() $stopLossPrice and $takeProfitPrice cannot both be defined');
         }
-        $tradeType = $this->safe_string($params, 'tradeType');
+        $isMargin = $this->is_margin_method('createOrder', $params);
         $params = $this->omit($params, array( 'stopLossPrice', 'takeProfitPrice', 'stopPrice' ));
         $method = 'privatePostOrders';
         if ($isStopLoss || $isTakeProfit) {
@@ -1267,8 +1272,10 @@ class kucoin extends Exchange {
             $triggerPrice = $isStopLoss ? $stopLossPrice : $takeProfitPrice;
             $request['stopPrice'] = $this->price_to_precision($symbol, $triggerPrice);
             $method = 'privatePostStopOrder';
-        } elseif ($tradeType === 'MARGIN_TRADE') {
+        } elseif ($isMargin) {
             $method = 'privatePostMarginOrder';
+            $marginMode = $this->safe_string($this->options, 'defaultMarginMode', 'cross');
+            $request['marginMode'] = $this->safe_string($params, 'marginMode', $marginMode);
         }
         $response = yield $this->$method (array_merge($request, $params));
         //
@@ -1355,8 +1362,11 @@ class kucoin extends Exchange {
         }
         $method = 'privateDeleteOrders';
         $stop = $this->safe_value($params, 'stop');
+        $isMargin = $this->is_margin_method('cancelAllOrders', $params);
         if ($stop) {
             $method = 'privateDeleteStopOrderCancel';
+        } elseif ($isMargin) {
+            $request['tradeType'] = 'MARGIN_TRADE';
         }
         return yield $this->$method (array_merge($request, $params));
     }
@@ -1404,10 +1414,13 @@ class kucoin extends Exchange {
             $request['endAt'] = $until;
         }
         $stop = $this->safe_value($params, 'stop');
+        $isMargin = $this->is_margin_method('fetchOrdersByStatus', $params);
         $params = $this->omit($params, array( 'stop', 'till', 'until' ));
         $method = 'privateGetOrders';
         if ($stop) {
             $method = 'privateGetStopOrder';
+        } elseif ($isMargin) {
+            $request['tradeType'] = 'MARGIN_TRADE';
         }
         $response = yield $this->$method (array_merge($request, $params));
         //
