@@ -1439,6 +1439,13 @@ class gate(Exchange):
             'previousFundingDatetime': None,
         }
 
+    def safe_network(self, networkId):
+        networksById = {
+            'TRC20': 'TRX',
+            'ERC20': 'ETH',
+        }
+        return self.safe_string(networksById, networkId, networkId)
+
     async def fetch_network_deposit_address(self, code, params={}):
         await self.load_markets()
         currency = self.currency(code)
@@ -1486,6 +1493,8 @@ class gate(Exchange):
         """
         await self.load_markets()
         currency = self.currency(code)
+        network = self.safe_string(params, 'network')
+        chain = self.safe_network(network)
         request = {
             'currency': currency['id'],
         }
@@ -1505,11 +1514,24 @@ class gate(Exchange):
         #        ]
         #    }
         #
+        
         currencyId = self.safe_string(response, 'currency')
         code = self.safe_currency_code(currencyId)
-        addressField = self.safe_string(response, 'address')
+        addresses = self.safe_value(response, 'multichain_addresses', [])
+        addressesByChain = self.index_by(addresses, 'chain')
+        numAddresses = len(addresses)
+        if numAddresses > 1:
+            if chain is None:
+                blockchains = list(addressesByChain.keys())
+                chains = ', '.join(blockchains)
+                raise ArgumentsRequired(self.id + ' fetchDepositAddress() returned more than one address, a chainName parameter is required, one of ' + chains)
+            chainAddress = self.safe_value(addressesByChain, chain, {})
+        else:
+            # first address
+            chainAddress = self.safe_value(addressesByChain, 0, {})
         tag = None
         address = None
+        addressField = self.safe_value(chainAddress, 'address')
         if addressField is not None:
             if addressField.find(' ') >= 0:
                 splitted = addressField.split(' ')
@@ -1523,7 +1545,7 @@ class gate(Exchange):
             'code': code,
             'address': address,
             'tag': tag,
-            'network': None,
+            'network': network,
         }
 
     async def fetch_trading_fee(self, symbol, params={}):
