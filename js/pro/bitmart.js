@@ -30,7 +30,7 @@ module.exports = class bitmart extends bitmartRest {
             'options': {
                 'defaultType': 'spot',
                 'watchOrderBook': {
-                    'depth': 'depth5', // depth5, depth400
+                    'depth': 'depth5', // depth5, depth20, depth50
                 },
                 'ws': {
                     'inflate': true,
@@ -620,7 +620,8 @@ module.exports = class bitmart extends bitmartRest {
             const methods = {
                 'depth': this.handleOrderBook,
                 'depth5': this.handleOrderBook,
-                'depth400': this.handleOrderBook,
+                'depth20': this.handleOrderBook,
+                'depth50': this.handleOrderBook,
                 'ticker': this.handleTicker,
                 'trade': this.handleTrade,
                 // ...
